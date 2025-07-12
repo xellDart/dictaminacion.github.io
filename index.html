@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NebuIA - Sistema de Dictaminación Legal</title>
+    <title>Sistema de Dictaminación Legal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -587,6 +587,14 @@
                 if (!response.ok) throw new Error('Error en la petición');
                 
                 globalData = await response.json();
+                
+                // Si globalData es un array, significa que tenemos múltiples respuestas individuales
+                if (Array.isArray(globalData)) {
+                    console.log('Recibido array de respuestas individuales');
+                    // Almacenar las respuestas individuales para poder buscarlas después
+                    window.individualResponses = globalData;
+                }
+                
                 processDocuments();
                 
             } catch (error) {
@@ -600,12 +608,18 @@
             const analyzedDocs = document.getElementById('analyzedDocs');
             analyzedDocs.innerHTML = '';
             
-            if (globalData && globalData.processed_entities) {
-                const docs = globalData.processed_entities.processed_documents || globalData.processed_entities;
+            if (globalData && (globalData.processed_entities || globalData.documents)) {
+                const rawDocs = globalData.processed_entities?.processed_documents || 
+                               globalData.processed_entities?.documents || 
+                               globalData.documents || 
+                               [];
                 const docCounts = {};
                 
-                docs.forEach(doc => {
-                    docCounts[doc.doc_type] = (docCounts[doc.doc_type] || 0) + 1;
+                rawDocs.forEach(doc => {
+                    const docType = doc.doc_type || doc.document_type;
+                    if (docType) {
+                        docCounts[docType] = (docCounts[docType] || 0) + 1;
+                    }
                 });
                 
                 Object.entries(docCounts).forEach(([type, count]) => {
@@ -630,6 +644,123 @@
             }).format(amount);
         }
 
+        // Función para transformar la estructura de entities a extraccion
+        function transformEntitiesToExtraccion(document) {
+            if (!document || !document.entities) {
+                return null;
+            }
+            
+            const extraccion = {};
+            
+            // Combinar todas las entidades en un solo objeto extraccion
+            document.entities.forEach(entity => {
+                if (entity.structure) {
+                    // Crear una copia profunda de la estructura
+                    const structure = JSON.parse(JSON.stringify(entity.structure));
+                    
+                    // Remover las propiedades name_to_show y page
+                    delete structure.name_to_show;
+                    delete structure.page;
+                    
+                    // Fusionar con el objeto extraccion de manera más inteligente
+                    Object.keys(structure).forEach(key => {
+                        if (extraccion[key] === undefined) {
+                            extraccion[key] = structure[key];
+                        } else if (Array.isArray(extraccion[key]) && Array.isArray(structure[key])) {
+                            // Si ambos son arrays, combinarlos
+                            extraccion[key] = [...extraccion[key], ...structure[key]];
+                        } else if (typeof extraccion[key] === 'object' && typeof structure[key] === 'object') {
+                            // Si ambos son objetos, fusionarlos
+                            extraccion[key] = { ...extraccion[key], ...structure[key] };
+                        }
+                    });
+                }
+            });
+            
+            console.log('Transformed extraccion:', extraccion);
+            return extraccion;
+        }
+        
+        // Función para normalizar documentos con diferentes estructuras
+        function normalizeDocument(doc) {
+            // Si el documento tiene un error y processed_data es null
+            if (doc.error && doc.processed_data === null) {
+                console.warn('Documento con error del servidor:', doc.error);
+                // Intentar buscar los datos en la respuesta global
+                const matchingDoc = findDocumentInGlobalData(doc.doc_id);
+                if (matchingDoc) {
+                    console.log('Encontrado documento alternativo:', matchingDoc);
+                    return normalizeDocument(matchingDoc);
+                }
+            }
+            
+            // Si ya tiene processed_data válido, retornar como está
+            if (doc.processed_data && doc.processed_data.extraccion) {
+                return doc;
+            }
+            
+            // Si tiene entities, transformar a la estructura esperada
+            if (doc.entities) {
+                const extraccion = transformEntitiesToExtraccion(doc);
+                return {
+                    ...doc,
+                    processed_data: {
+                        extraccion: extraccion,
+                        datos_documento: doc.structure?.datos_documento || 'Documento procesado'
+                    }
+                };
+            }
+            
+            // Si no tiene ninguna estructura reconocida, retornar un documento vacío
+            return {
+                ...doc,
+                processed_data: {
+                    extraccion: {},
+                    datos_documento: 'Sin datos disponibles'
+                }
+            };
+        }
+        
+        // Función auxiliar para buscar documento por ID en la respuesta global
+        function findDocumentInGlobalData(docId) {
+            console.log('Buscando documento con ID:', docId);
+            
+            // Si tenemos respuestas individuales almacenadas
+            if (window.individualResponses) {
+                for (const response of window.individualResponses) {
+                    if (response.id === docId && response.documents) {
+                        console.log('Encontrado en respuestas individuales:', response);
+                        return response.documents[0];
+                    }
+                }
+            }
+            
+            // Buscar en diferentes ubicaciones posibles
+            const possibleLocations = [
+                globalData?.documents,
+                globalData?.processed_entities?.documents,
+                ...(Array.isArray(globalData) ? [globalData] : [])
+            ];
+            
+            for (const location of possibleLocations) {
+                if (Array.isArray(location)) {
+                    const found = location.find(d => 
+                        d.document_id === docId || 
+                        d.doc_id === docId || 
+                        d.id === docId
+                    );
+                    if (found) return found;
+                }
+            }
+            
+            // Si es un objeto único con el ID correcto
+            if (globalData?.id === docId || globalData?.document_id === docId) {
+                return globalData.documents?.[0] || globalData;
+            }
+            
+            return null;
+        }
+
         function processDocuments() {
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('results').classList.remove('hidden');
@@ -637,13 +768,52 @@
             // Minimizar input section
             toggleInputSection();
             
-            const docs = globalData.processed_entities.processed_documents || globalData.processed_entities;
+            // Determinar si es una respuesta individual o múltiple
+            let rawDocs = [];
+            
+            if (Array.isArray(globalData)) {
+                // Si recibimos un array de respuestas, procesarlo diferente
+                console.log('Procesando array de respuestas');
+                
+                // Si el primer elemento tiene processed_entities, es la respuesta combinada
+                if (globalData[0]?.processed_entities) {
+                    rawDocs = globalData[0].processed_entities.processed_documents || [];
+                } else {
+                    // Si no, cada elemento puede ser una respuesta individual
+                    rawDocs = [];
+                    globalData.forEach(item => {
+                        if (item.documents && Array.isArray(item.documents)) {
+                            rawDocs.push(...item.documents);
+                        } else if (item.document_type) {
+                            rawDocs.push(item);
+                        }
+                    });
+                }
+            } else if (globalData.documents && Array.isArray(globalData.documents)) {
+                // Respuesta individual con array de documentos
+                rawDocs = globalData.documents;
+            } else if (globalData.processed_entities) {
+                // Respuesta con processed_entities
+                rawDocs = globalData.processed_entities.processed_documents || 
+                         globalData.processed_entities.documents || 
+                         [];
+            } else if (globalData.document_type && globalData.entities) {
+                // Respuesta de documento único
+                rawDocs = [globalData];
+            }
+            
+            // Depuración: ver estructura de documentos
+            console.log('Raw documents:', rawDocs);
+            
+            // Normalizar todos los documentos
+            const docs = rawDocs.map(doc => normalizeDocument(doc));
+            console.log('Normalized documents:', docs);
             
             // Separar documentos por tipo
             const documentsByType = {
-                constitutiva: docs.filter(d => d.doc_type === 'acta_constitutiva'),
-                poder: docs.filter(d => d.doc_type === 'poder'),
-                asambleas: docs.filter(d => d.doc_type === 'actas_de_asamblea')
+                constitutiva: docs.filter(d => d.doc_type === 'acta_constitutiva' || d.document_type === 'acta_constitutiva'),
+                poder: docs.filter(d => d.doc_type === 'poder' || d.document_type === 'poder'),
+                asambleas: docs.filter(d => d.doc_type === 'actas_de_asamblea' || d.document_type === 'actas_de_asamblea')
             };
             
             // Generar stats cards
@@ -659,11 +829,18 @@
             }
             
             // Generar dictamen con final_structures
+            let finalStructures = null;
+            if (Array.isArray(globalData) && globalData[0]?.processed_entities?.final_structures) {
+                finalStructures = globalData[0].processed_entities.final_structures;
+            } else if (globalData.processed_entities?.final_structures) {
+                finalStructures = globalData.processed_entities.final_structures;
+            }
+            
             renderDictamen(
                 documentsByType.constitutiva[0], 
                 documentsByType.poder[0], 
                 documentsByType.asambleas,
-                globalData.processed_entities.final_structures
+                finalStructures
             );
         }
 
@@ -672,7 +849,7 @@
             statsCards.innerHTML = '';
             
             // Total documentos
-            const totalDocs = globalData.processed_entities.processed_documents.length;
+            const totalDocs = Object.values(documentsByType).reduce((sum, docs) => sum + docs.length, 0);
             statsCards.innerHTML += `
                 <div class="card p-4">
                     <div class="flex items-center justify-between">
@@ -800,7 +977,31 @@
             const content = document.getElementById('documents-content');
             content.innerHTML = '';
             
+            console.log('Rendering constitutiva tab with docs:', docs);
+            
             docs.forEach(doc => {
+                console.log('Processing constitutiva doc:', doc);
+                
+                // Validar que processed_data existe
+                if (!doc.processed_data || !doc.processed_data.extraccion) {
+                    console.error('Documento sin datos procesados:', doc);
+                    console.error('processed_data:', doc.processed_data);
+                    content.innerHTML += `
+                        <div class="bg-red-50 rounded-lg p-4 border border-red-200">
+                            <h4 class="font-medium text-red-900 mb-2">
+                                <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                                Error al procesar documento
+                            </h4>
+                            <p class="text-sm text-red-600">No se pudieron extraer datos de este documento</p>
+                            <details class="mt-2">
+                                <summary class="text-xs text-red-500 cursor-pointer">Ver detalles del error</summary>
+                                <pre class="text-xs mt-2 p-2 bg-red-100 rounded">${JSON.stringify(doc, null, 2)}</pre>
+                            </details>
+                        </div>
+                    `;
+                    return;
+                }
+                
                 const data = doc.processed_data.extraccion;
                 content.innerHTML += `
                     <div class="space-y-6">
@@ -810,7 +1011,7 @@
                                 <i class="fas fa-info-circle text-blue-600 mr-2"></i>
                                 Información del Documento
                             </h4>
-                            <p class="text-sm text-gray-600 whitespace-pre-line">${doc.processed_data.datos_documento}</p>
+                            <p class="text-sm text-gray-600 whitespace-pre-line">${doc.processed_data.datos_documento || 'Sin descripción disponible'}</p>
                             
                             <!-- Detalles adicionales -->
                             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
@@ -1138,6 +1339,21 @@
             content.innerHTML = '';
             
             docs.forEach(doc => {
+                // Validar que processed_data existe
+                if (!doc.processed_data || !doc.processed_data.extraccion) {
+                    console.error('Documento de poder sin datos procesados:', doc);
+                    content.innerHTML += `
+                        <div class="bg-red-50 rounded-lg p-4 border border-red-200">
+                            <h4 class="font-medium text-red-900 mb-2">
+                                <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                                Error al procesar documento de poder
+                            </h4>
+                            <p class="text-sm text-red-600">No se pudieron extraer datos de este documento</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
                 const data = doc.processed_data.extraccion;
                 const vigenciaCompleta = doc.processed_data.vigencia_poder;
                 
@@ -1149,7 +1365,7 @@
                                 <i class="fas fa-info-circle text-green-600 mr-2"></i>
                                 Información del Documento
                             </h4>
-                            <p class="text-sm text-gray-600 whitespace-pre-line">${doc.processed_data.datos_documento}</p>
+                            <p class="text-sm text-gray-600 whitespace-pre-line">${doc.processed_data.datos_documento || 'Sin descripción disponible'}</p>
                             
                             <!-- Detalles adicionales -->
                             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
@@ -1293,6 +1509,21 @@
             content.innerHTML = '';
             
             docs.forEach((doc, docIdx) => {
+                // Validar que processed_data existe
+                if (!doc.processed_data || !doc.processed_data.extraccion) {
+                    console.error('Documento de asamblea sin datos procesados:', doc);
+                    content.innerHTML += `
+                        <div class="bg-red-50 rounded-lg p-4 border border-red-200 mb-4">
+                            <h4 class="font-medium text-red-900 mb-2">
+                                <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                                Error al procesar documento de asamblea ${docIdx + 1}
+                            </h4>
+                            <p class="text-sm text-red-600">No se pudieron extraer datos de este documento</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
                 const data = doc.processed_data;
                 const ext = data.extraccion;
                 content.innerHTML += `
@@ -1779,6 +2010,21 @@
 
       // Función para dictamen solo con poder
       function renderDictamenPoder(poder, finalStructures, content, fecha) {
+          // Validar que processed_data existe
+          if (!poder.processed_data || !poder.processed_data.extraccion) {
+              console.error('Documento de poder sin datos procesados en dictamen:', poder);
+              content.innerHTML = `
+                  <div class="bg-red-50 rounded-lg p-4 border border-red-200">
+                      <h4 class="font-medium text-red-900 mb-2">
+                          <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                          Error al generar dictamen
+                      </h4>
+                      <p class="text-sm text-red-600">No se pudieron extraer datos del documento de poder</p>
+                  </div>
+              `;
+              return;
+          }
+          
           const poderData = poder.processed_data.extraccion;
           const folioMercantil = generateFolio();
           
@@ -1852,6 +2098,21 @@
 
       // Función para dictamen con acta y asambleas (sin poder)
       function renderDictamenActaAsambleas(constitutiva, asambleas, finalStructures, content, fecha) {
+          // Validar que processed_data existe
+          if (!constitutiva.processed_data || !constitutiva.processed_data.extraccion) {
+              console.error('Documento constitutiva sin datos procesados en dictamen:', constitutiva);
+              content.innerHTML = `
+                  <div class="bg-red-50 rounded-lg p-4 border border-red-200">
+                      <h4 class="font-medium text-red-900 mb-2">
+                          <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                          Error al generar dictamen
+                      </h4>
+                      <p class="text-sm text-red-600">No se pudieron extraer datos del acta constitutiva</p>
+                  </div>
+              `;
+              return;
+          }
+          
           const actaData = constitutiva.processed_data.extraccion;
           const sociedadNombre = finalStructures?.company || actaData.nombre_o_razon_social || '[NOMBRE SOCIEDAD]';
           const folioMercantil = generateFolio();
@@ -1957,12 +2218,17 @@
                       <div class="dictamen-section-content">
                           <p>Se han analizado ${asambleas.length} acta(s) de asamblea:</p>
                           <ul style="list-style-type: disc; padding-left: 20px; margin-top: 10px;">
-                              ${asambleas.map(asamblea => `
-                                  <li>
-                                      ${asamblea.processed_data.extraccion.tipo_asamblea || 'Asamblea'} - 
-                                      ${asamblea.processed_data.extraccion.fecha_de_celebracion || 'Fecha no especificada'}
-                                  </li>
-                              `).join('')}
+                              ${asambleas.map(asamblea => {
+                                  if (!asamblea.processed_data || !asamblea.processed_data.extraccion) {
+                                      return `<li style="color: red;">Error al procesar acta de asamblea</li>`;
+                                  }
+                                  return `
+                                      <li>
+                                          ${asamblea.processed_data.extraccion.tipo_asamblea || 'Asamblea'} - 
+                                          ${asamblea.processed_data.extraccion.fecha_de_celebracion || 'Fecha no especificada'}
+                                      </li>
+                                  `;
+                              }).join('')}
                           </ul>
                       </div>
                   </div>
@@ -2503,14 +2769,22 @@
 
       // Función auxiliar para extraer fecha de documento
       function extractDateFromDocument(doc) {
+          // Validar que processed_data existe
+          if (!doc.processed_data) {
+              console.error('Documento sin datos procesados al extraer fecha:', doc);
+              return '2000-01-01'; // Fecha por defecto
+          }
+          
           const data = doc.processed_data;
           if (data.extraccion?.fecha_celebración) return data.extraccion.fecha_celebración;
           if (data.extraccion?.fecha_de_celebracion) return data.extraccion.fecha_de_celebracion;
           if (data.extraccion?.poder?.fecha_otorgamiento) return data.extraccion.poder.fecha_otorgamiento;
           
-          // Intentar extraer fecha del texto
-          const match = data.datos_documento.match(/fecha (\d{1,2} de \w+ de(?:l)? \d{4})/i);
-          if (match) return match[1];
+          // Intentar extraer fecha del texto si existe datos_documento
+          if (data.datos_documento) {
+              const match = data.datos_documento.match(/fecha (\d{1,2} de \w+ de(?:l)? \d{4})/i);
+              if (match) return match[1];
+          }
           
           return '2000-01-01'; // Fecha por defecto
       }
