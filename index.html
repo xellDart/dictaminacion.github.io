@@ -410,9 +410,9 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="statsCards"></div>
             
             <!-- Main Content Area -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Left: Documents (2 columns) -->
-                <div class="lg:col-span-2">
+            <div class="grid grid-cols-1 gap-6">
+                <!-- Full width documents area -->
+                <div class="col-span-1">
                     <div class="card h-[700px] flex flex-col">
                         <!-- Tabs -->
                         <div class="border-b border-gray-200 px-6 pt-4">
@@ -424,26 +424,7 @@
                     </div>
                 </div>
 
-                <!-- Right: Dictamen (1 column) -->
-                <div class="lg:col-span-1">
-                    <div class="card h-[700px] flex flex-col">
-                        <!-- Header con acciones -->
-                        <div class="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-                            <h3 class="font-semibold text-gray-900">Dictamen Jurídico</h3>
-                            <div class="flex space-x-2">
-                                <button onclick="exportToPDF()" class="text-gray-400 hover:text-gray-600 transition-colors" title="Exportar PDF">
-                                    <i class="fas fa-file-pdf"></i>
-                                </button>
-                                <button onclick="window.print()" class="text-gray-400 hover:text-gray-600 transition-colors" title="Imprimir">
-                                    <i class="fas fa-print"></i>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- Content -->
-                        <div class="flex-1 p-6 overflow-y-auto" id="dictamen-content"></div>
-                    </div>
-                </div>
+                <!-- Right column removed - Dictamen now in tabs only -->
             </div>
         </div>
     </main>
@@ -541,7 +522,14 @@
         }
         
         function exportToPDF() {
-            const element = document.getElementById('dictamen-content');
+            // Buscar el contenedor del dictamen completo
+            let element = document.getElementById('dictamen-completo-content');
+            
+            // Si no existe (porque estamos en otro tab), usar el contenido actual
+            if (!element) {
+                element = document.getElementById('documents-content');
+            }
+            
             const opt = {
                 margin: 10,
                 filename: `dictamen_juridico_${new Date().toISOString().split('T')[0]}.pdf`,
@@ -807,7 +795,7 @@
             
             // Normalizar todos los documentos
             const docs = rawDocs.map(doc => normalizeDocument(doc));
-            console.log('Normalized documents:', docs);
+         
             
             // Separar documentos por tipo
             const documentsByType = {
@@ -836,12 +824,13 @@
                 finalStructures = globalData.processed_entities.final_structures;
             }
             
-            renderDictamen(
-                documentsByType.constitutiva[0], 
-                documentsByType.poder[0], 
-                documentsByType.asambleas,
-                finalStructures
-            );
+            // Dictamen ahora solo está disponible en el tab
+            // renderDictamen(
+            //     documentsByType.constitutiva[0], 
+            //     documentsByType.poder[0], 
+            //     documentsByType.asambleas,
+            //     finalStructures
+            // );
         }
 
         function generateStatsCards(documentsByType) {
@@ -937,6 +926,16 @@
                     `;
                 }
             });
+            
+            // Agregar tab de Dictamen Completo siempre
+            tabsContainer.innerHTML += `
+                <button onclick="showTab('dictamen')" 
+                        class="tab-btn pb-3 text-sm font-medium transition-all tab-inactive"
+                        data-tab="dictamen">
+                    <i class="fas fa-gavel mr-2"></i>
+                    Dictamen Completo
+                </button>
+            `;
         }
 
         function showTab(tabName) {
@@ -969,9 +968,51 @@
                 case 'asambleas':
                     renderAsambleasTab(asambleas);
                     break;
+                case 'dictamen':
+                    renderDictamenTab(constitutiva[0], poder[0], asambleas);
+                    break;
             }
         }
 
+        // Función para renderizar el tab del Dictamen Completo
+        function renderDictamenTab(constitutiva, poder, asambleas) {
+            const content = document.getElementById('documents-content');
+            
+            // Agregar botones de exportar en la parte superior
+            content.innerHTML = `
+                <div class="mb-4 flex justify-end space-x-2">
+                    <button onclick="exportToPDF()" class="btn-secondary px-4 py-2 rounded-lg flex items-center">
+                        <i class="fas fa-file-pdf mr-2"></i>
+                        Exportar PDF
+                    </button>
+                    <button onclick="window.print()" class="btn-secondary px-4 py-2 rounded-lg flex items-center">
+                        <i class="fas fa-print mr-2"></i>
+                        Imprimir
+                    </button>
+                </div>
+                <div id="dictamen-completo-content"></div>
+            `;
+            
+            const dictamenContent = document.getElementById('dictamen-completo-content');
+            
+            // Obtener final structures
+            let finalStructures = null;
+            if (Array.isArray(globalData) && globalData[0]?.processed_entities?.final_structures) {
+                finalStructures = globalData[0].processed_entities.final_structures;
+            } else if (globalData.processed_entities?.final_structures) {
+                finalStructures = globalData.processed_entities.final_structures;
+            }
+            
+            const fecha = new Date().toLocaleDateString('es-MX', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            // Renderizar el dictamen completo tipo Bancrea
+            renderDictamenCompleto(constitutiva, poder, asambleas, finalStructures, dictamenContent, fecha);
+        }
+        
         // Función para renderizar el tab de Acta Constitutiva con toda la información
         function renderConstitutivaTab(docs) {
             const content = document.getElementById('documents-content');
@@ -1143,7 +1184,48 @@
                             </div>
                         ` : ''}
                         
-                        <!-- Órgano de Administración -->
+                        <!-- Órgano de Administración y Vigilancia (Nueva tabla unificada) -->
+                        ${(data.nombres_administradores && data.nombres_administradores.length > 0) || data.órgano_vigilacia_o_vigilación?.nombre_comisario || data.nombre_comisario ? `
+                            <div>
+                                <h4 class="font-medium text-gray-900 mb-3">
+                                    <i class="fas fa-users text-gray-600 mr-2"></i>
+                                    Órganos de Administración y Vigilancia
+                                </h4>
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <table class="w-full border-collapse">
+                                        <thead>
+                                            <tr class="border-b border-gray-300">
+                                                <th class="text-left p-3 font-medium">Administradores</th>
+                                                <th class="text-left p-3 font-medium">Comisario</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td class="p-3 align-top border-r border-gray-300">
+                                                    ${data.nombres_administradores && data.nombres_administradores.length > 0 ? `
+                                                        <ul class="space-y-2">
+                                                            ${data.nombres_administradores.map((admin, idx) => `
+                                                                <li class="flex items-start">
+                                                                    <span class="flex-shrink-0 w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-xs font-medium text-blue-700 mr-2">
+                                                                        ${idx + 1}
+                                                                    </span>
+                                                                    <span class="text-sm">${admin}</span>
+                                                                </li>
+                                                            `).join('')}
+                                                        </ul>
+                                                    ` : '<p class="text-sm text-gray-500">No especificados</p>'}
+                                                </td>
+                                                <td class="p-3 align-top">
+                                                    <p class="text-sm">${data.órgano_vigilacia_o_vigilación?.nombre_comisario || data.nombre_comisario || 'Por designar'}</p>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Órgano de Administración (Información adicional si existe) -->
                         ${data.sociedad?.administradores || data.órgano_administración ? `
                             <div>
                                 <h4 class="font-medium text-gray-900 mb-3">
@@ -1210,8 +1292,8 @@
                             </div>
                         ` : ''}
                         
-                        <!-- Órgano de Vigilancia -->
-                        ${data.órgano_vigilacia_o_vigilación ? `
+                        <!-- Órgano de Vigilancia (solo si no se mostró en la tabla combinada) -->
+                        ${data.órgano_vigilacia_o_vigilación && !data.nombres_administradores && !data.nombre_comisario ? `
                             <div class="bg-purple-50 rounded-lg p-4">
                                 <h4 class="font-medium text-gray-900 mb-3">
                                     <i class="fas fa-user-check text-purple-600 mr-2"></i>
@@ -2098,303 +2180,21 @@
 
       // Función para dictamen con acta y asambleas (sin poder)
       function renderDictamenActaAsambleas(constitutiva, asambleas, finalStructures, content, fecha) {
-          // Validar que processed_data existe
-          if (!constitutiva.processed_data || !constitutiva.processed_data.extraccion) {
-              console.error('Documento constitutiva sin datos procesados en dictamen:', constitutiva);
-              content.innerHTML = `
-                  <div class="bg-red-50 rounded-lg p-4 border border-red-200">
-                      <h4 class="font-medium text-red-900 mb-2">
-                          <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
-                          Error al generar dictamen
-                      </h4>
-                      <p class="text-sm text-red-600">No se pudieron extraer datos del acta constitutiva</p>
-                  </div>
-              `;
-              return;
-          }
-          
-          const actaData = constitutiva.processed_data.extraccion;
-          const sociedadNombre = finalStructures?.company || actaData.nombre_o_razon_social || '[NOMBRE SOCIEDAD]';
-          const folioMercantil = generateFolio();
-          
-          let html = `
-              <div style="font-size: 11px; line-height: 1.5;">
-                  <h1 style="text-align: center; font-size: 14px; font-weight: bold; margin: 20px 0;">
-                      Dictamen Jurídico Corporativo<br>
-                      ${sociedadNombre}
-                  </h1>
-                  
-                  <div style="text-align: right; font-size: 10px; margin-bottom: 20px; font-weight: bold;">
-                      FOLIO: ${folioMercantil}
-                  </div>
-                  
-                  <!-- Datos de constitución -->
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">1) Datos de Constitución</div>
-                      <div class="dictamen-section-content">
-                          <table class="dictamen-table">
-                              <tr>
-                                  <td style="width: 30%; font-weight: bold;">Denominación:</td>
-                                  <td>${sociedadNombre}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Escritura:</td>
-                                  <td>${actaData.numero_escritura_o_póliza || 'No especificada'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Fecha de Constitución:</td>
-                                  <td>${actaData.fecha_celebración || 'No especificada'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Duración:</td>
-                                  <td>${actaData.duración_sociedad || 'INDEFINIDA'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Domicilio Social:</td>
-                                  <td>${actaData.domicilio_social || 'No especificado'}</td>
-                              </tr>
-                          </table>
-                      </div>
-                  </div>
-                  
-                  <!-- Órganos vigentes -->
-                  ${finalStructures?.vigent_structures ? `
-                      ${finalStructures.vigent_structures.organo_administracion ? `
-                          <div class="dictamen-section">
-                              <div class="dictamen-header">2) Órgano de Administración Vigente</div>
-                              <div class="dictamen-section-content">
-                                  <table class="dictamen-table">
-                                      ${finalStructures.vigent_structures.organo_administracion.data.miembros.map(miembro => `
-                                          <tr>
-                                              <td style="width: 30%; font-weight: bold;">${miembro.rol}:</td>
-                                              <td>${miembro.nombre}</td>
-                                          </tr>
-                                      `).join('')}
-                                  </table>
-                              </div>
-                          </div>
-                      ` : ''}
-                      
-                      ${finalStructures.vigent_structures.accionistas ? `
-                          <div class="dictamen-section">
-                              <div class="dictamen-header">3) Estructura Accionaria Vigente</div>
-                              <div class="dictamen-section-content">
-                                  <table class="dictamen-table">
-                                      <thead>
-                                          <tr>
-                                              <th>Accionista</th>
-                                              <th>Acciones</th>
-                                              <th>Valor</th>
-                                              <th>Participación</th>
-                                          </tr>
-                                      </thead>
-                                      <tbody>
-                                          ${finalStructures.vigent_structures.accionistas.data.map(acc => {
-                                              const valorNumerico = parseFloat(acc.valor?.replace(/[^\d.-]/g, '') || 0);
-                                              const totalCapital = finalStructures.vigent_structures.accionistas.data.reduce((sum, a) => {
-                                                  return sum + parseFloat(a.valor?.replace(/[^\d.-]/g, '') || 0);
-                                              }, 0);
-                                              const porcentaje = totalCapital > 0 ? ((valorNumerico / totalCapital) * 100).toFixed(2) : '0';
-                                              
-                                              return `
-                                                  <tr>
-                                                      <td>${acc.nombre}</td>
-                                                      <td style="text-align: center;">${acc.número_de_acciones || '-'}</td>
-                                                      <td style="text-align: right;">${acc.valor}</td>
-                                                      <td style="text-align: center;">${porcentaje}%</td>
-                                                  </tr>
-                                              `;
-                                          }).join('')}
-                                      </tbody>
-                                  </table>
-                              </div>
-                          </div>
-                      ` : ''}
-                  ` : ''}
-                  
-                  <!-- Resumen de asambleas -->
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">4) Asambleas Celebradas</div>
-                      <div class="dictamen-section-content">
-                          <p>Se han analizado ${asambleas.length} acta(s) de asamblea:</p>
-                          <ul style="list-style-type: disc; padding-left: 20px; margin-top: 10px;">
-                              ${asambleas.map(asamblea => {
-                                  if (!asamblea.processed_data || !asamblea.processed_data.extraccion) {
-                                      return `<li style="color: red;">Error al procesar acta de asamblea</li>`;
-                                  }
-                                  return `
-                                      <li>
-                                          ${asamblea.processed_data.extraccion.tipo_asamblea || 'Asamblea'} - 
-                                          ${asamblea.processed_data.extraccion.fecha_de_celebracion || 'Fecha no especificada'}
-                                      </li>
-                                  `;
-                              }).join('')}
-                          </ul>
-                      </div>
-                  </div>
-                  
-                  <div style="margin-top: 30px; padding: 15px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
-                      <p style="font-weight: bold; margin-bottom: 10px;">Nota:</p>
-                      <p style="font-size: 10px;">Este dictamen refleja la estructura corporativa vigente con base en los documentos analizados.</p>
-                  </div>
-                  
-                  <div style="text-align: right; margin: 30px 0;">
-                      <p>${actaData.lugar?.municipio || 'Ciudad'} a ${fecha}</p>
-                  </div>
-              </div>
-          `;
-          
-          content.innerHTML = html;
+          // Usar la función completa de Bancrea para TODOS los casos
+          renderDictamenCompleto(constitutiva, null, asambleas, finalStructures, content, fecha);
       }
 
       // Función para dictamen solo con acta constitutiva
       function renderDictamenSoloActa(constitutiva, finalStructures, content, fecha) {
-          const actaData = constitutiva.processed_data.extraccion;
-          const sociedadNombre = finalStructures?.company || actaData.nombre_o_razon_social || '[NOMBRE SOCIEDAD]';
-          const folioMercantil = generateFolio();
-          
-          let html = `
-              <div style="font-size: 11px; line-height: 1.5;">
-                  <h1 style="text-align: center; font-size: 14px; font-weight: bold; margin: 20px 0;">
-                      Dictamen de Acta Constitutiva<br>
-                      ${sociedadNombre}
-                  </h1>
-                  
-                  <div style="text-align: right; font-size: 10px; margin-bottom: 20px; font-weight: bold;">
-                      FOLIO: ${folioMercantil}
-                  </div>
-                  
-                  <!-- Información de constitución -->
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">1) Información de Constitución</div>
-                      <div class="dictamen-section-content">
-                          <table class="dictamen-table">
-                              <tr>
-                                  <td style="width: 35%; font-weight: bold;">Denominación Social:</td>
-                                  <td>${sociedadNombre}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Escritura Pública:</td>
-                                  <td>${actaData.numero_escritura_o_póliza || 'No especificada'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Fecha de Constitución:</td>
-                                  <td>${actaData.fecha_celebración || 'No especificada'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Duración:</td>
-                                  <td>${actaData.duración_sociedad || 'INDEFINIDA'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Domicilio Social:</td>
-                                  <td>${actaData.domicilio_social || 'No especificado'}</td>
-                              </tr>
-                              <tr>
-                                  <td style="font-weight: bold;">Folio Mercantil:</td>
-                                  <td>${actaData.folio_mercantil_electronico || 'No especificado'}</td>
-                              </tr>
-                          </table>
-                      </div>
-                  </div>
-                  
-                  <!-- Objeto social resumido -->
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">2) Objeto Social</div>
-                      <div class="dictamen-section-content">
-                          <p style="font-size: 10px;">La sociedad cuenta con un objeto social amplio que incluye:</p>
-                          <table class="dictamen-table" style="margin-top: 10px;">
-                              <tr>
-                                  <td>Celebrar contratos de crédito</td>
-                                  <td style="width: 60px; text-align: center;">Sí</td>
-                              </tr>
-                              <tr>
-                                  <td>Otorgar garantías</td>
-                                  <td style="text-align: center;">Sí</td>
-                              </tr>
-                              <tr>
-                                  <td>Constituirse como obligado solidario</td>
-                                  <td style="text-align: center;">Sí</td>
-                              </tr>
-                          </table>
-                      </div>
-                  </div>
-                  
-                  <!-- Estructura inicial -->
-                  ${actaData.accionistas && actaData.accionistas.length > 0 ? `
-                      <div class="dictamen-section">
-                          <div class="dictamen-header">3) Accionistas Fundadores</div>
-                          <div class="dictamen-section-content">
-                              <table class="dictamen-table">
-                                  <thead>
-                                      <tr>
-                                          <th>Accionista</th>
-                                          <th>Participación</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody>
-                                      ${actaData.accionistas.map(acc => {
-                                          const valorNumerico = parseFloat(acc.valor?.replace(/[^\d.-]/g, '') || 0);
-                                          const totalCapital = actaData.accionistas.reduce((sum, a) => {
-                                              return sum + parseFloat(a.valor?.replace(/[^\d.-]/g, '') || 0);
-                                          }, 0);
-                                          const porcentaje = totalCapital > 0 ? ((valorNumerico / totalCapital) * 100).toFixed(2) : '0';
-                                          
-                                          return `
-                                              <tr>
-                                                  <td>${acc.nombre}</td>
-                                                  <td style="text-align: center;">${porcentaje}%</td>
-                                              </tr>
-                                          `;
-                                      }).join('')}
-                                  </tbody>
-                              </table>
-                          </div>
-                      </div>
-                  ` : ''}
-                  
-                  <!-- Órgano de administración inicial -->
-                  ${actaData.sociedad?.administradores || actaData.órgano_administración ? `
-                      <div class="dictamen-section">
-                          <div class="dictamen-header">4) Órgano de Administración Inicial</div>
-                          <div class="dictamen-section-content">
-                              <p style="font-size: 10px; margin-bottom: 10px;">
-                                  Tipo: ${actaData.sociedad?.tipo_administración || 'Consejo de Administración'}
-                              </p>
-                              ${actaData.sociedad?.administradores ? `
-                                  <table class="dictamen-table">
-                                      ${actaData.sociedad.administradores.map((admin, idx) => `
-                                          <tr>
-                                              <td style="width: 30%; font-weight: bold;">
-                                                  ${idx === 0 ? 'Presidente' : idx === 1 ? 'Secretario' : 'Consejero'}:
-                                              </td>
-                                              <td>${admin}</td>
-                                          </tr>
-                                      `).join('')}
-                                  </table>
-                              ` : ''}
-                          </div>
-                      </div>
-                  ` : ''}
-                  
-                  <div style="margin-top: 30px; padding: 15px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
-                      <p style="font-weight: bold; margin-bottom: 10px;">Observaciones:</p>
-                      <ul style="margin: 10px 0; padding-left: 20px; list-style-type: disc; font-size: 10px;">
-                          <li style="margin: 5px 0;">La sociedad se encuentra debidamente constituida conforme a las leyes mexicanas.</li>
-                          <li style="margin: 5px 0;">Se recomienda verificar modificaciones posteriores mediante actas de asamblea.</li>
-                      </ul>
-                  </div>
-                  
-                  <div style="text-align: right; margin: 30px 0;">
-                      <p>${actaData.lugar?.municipio || 'Ciudad'} a ${fecha}</p>
-                  </div>
-              </div>
-          `;
-          
-          content.innerHTML = html;
+          // Usar la función completa de Bancrea para TODOS los casos
+          renderDictamenCompleto(constitutiva, null, null, finalStructures, content, fecha);
       }
 
       // Función para dictamen completo tipo Bancrea (cuando hay múltiples documentos)
       function renderDictamenCompleto(constitutiva, poder, asambleas, finalStructures, content, fecha) {
+          console.log('Final structures:', finalStructures);
+          console.log('Constitutiva completa:', constitutiva);
+          
           // Obtener todos los documentos ordenados cronológicamente
           const allDocs = [];
           if (constitutiva) allDocs.push(constitutiva);
@@ -2408,358 +2208,696 @@
               return new Date(fechaA) - new Date(fechaB);
           });
           
-          // Información básica
-          const actaData = constitutiva?.processed_data?.extraccion;
-          const sociedadNombre = finalStructures?.company || actaData?.nombre_o_razon_social || '[NOMBRE SOCIEDAD]';
-          const numeroEscritura = actaData?.numero_escritura_o_póliza || '[NUMERO]';
-          const folioMercantil = actaData?.folio_mercantil_electronico || generateFolio();
+          // Información básica usando datos más actuales
+          const actaData = constitutiva?.processed_data?.extraccion || {};
+          const sociedadNombre = finalStructures?.company || actaData?.nombre_o_razon_social || '';
+          const numeroEscritura = actaData?.numero_escritura_o_póliza || '';
+          const folioMercantil = generateFolio();
+          
+          // Extraer tipo de sociedad del nombre completo
+          const tipoSociedad = sociedadNombre.match(/,?\s*(S\.A\.\s*DE\s*C\.V\.|S\.A\.|S\. DE R\.L\.|S\.C\.|A\.C\.)/i)?.[1] || 'S.A. DE C.V.';
+          const nombreBase = sociedadNombre.replace(/,?\s*(S\.A\.\s*DE\s*C\.V\.|S\.A\.|S\. DE R\.L\.|S\.C\.|A\.C\.).*/i, '').trim();
           
           // Generar dictamen estilo Bancrea
           let html = `
-              <div style="font-size: 11px; line-height: 1.5;">
+              <div style="font-size: 11px; line-height: 1.5; font-family: Arial, sans-serif;">
+                  <!-- Encabezado con logo simulado -->
+                  <div style="text-align: center; margin-bottom: 30px;">
+                      <div style="display: inline-block; width: 120px; height: 40px; background: linear-gradient(45deg, #8bc34a, #2196f3); border-radius: 20px; margin-bottom: 10px;"></div>
+                  </div>
+                  
                   <h1 style="text-align: center; font-size: 14px; font-weight: bold; margin: 20px 0;">
                       Dictamen Jurídico para Apertura de Cuenta y<br>
                       formalización de Crédito / Arrendamiento
                   </h1>
                   
-                  <div style="text-align: right; font-size: 10px; margin-bottom: 20px; font-weight: bold;">
+                  <div style="text-align: right; font-size: 9px; margin-bottom: 20px; font-weight: normal;">
                       FOLIO: ${folioMercantil}
                   </div>
           `;
           
-          // 1. Denominación y tipo de sociedad
-          if (constitutiva) {
+          // 1) Denominación y tipo de Sociedad
+          html += `
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 8px; font-weight: bold; border: 1px solid #000000;">
+                          1) Denominación y tipo de Sociedad: ${nombreBase}, ${tipoSociedad} (Esc.${numeroEscritura})
+                      </td>
+                  </tr>
+              </table>
+          `;
+          
+          // Documentos dictaminados
+          if (allDocs.length > 0) {
               html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">
-                          1) Denominación y tipo de Sociedad: ${sociedadNombre}, S.A. DE C.V. (Esc.${numeroEscritura})
-                      </div>
-                  </div>
+                  <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                      <tr>
+                          <td style="background-color: #e5e7eb; padding: 8px; font-weight: bold; border: 1px solid #d1d5db;">
+                              Documentos dictaminados
+                          </td>
+                      </tr>
+                      <tr>
+                          <td style="padding: 8px; border: 1px solid #d1d5db; font-size: 10px;">
+                              ${allDocs.map((doc, idx) => {
+                                  const datosDoc = doc.processed_data?.datos_documento || '';
+                                  // Si tiene datos_documento, usarlo, si no, construir desde la extracción
+                                  if (datosDoc) return datosDoc;
+                                  
+                                  const extraccion = doc.processed_data?.extraccion || {};
+                                  const numero = extraccion.numero_escritura_o_póliza || extraccion.numero_de_escritura_publica || '';
+                                  const fecha = extraccion.fecha_del_instrumento || '';
+                                  const notario = extraccion.nombre_del_notario || '';
+                                  const notariaNum = extraccion.número_notaría || '';
+                                  const ciudad = extraccion.residencia || 'la ciudad';
+                                  
+                                  if (numero && fecha && notario) {
+                                      return `Escritura número ${numero} de fecha ${fecha}, pasada ante la fe del ${notario}, titular de la Notaría Pública número ${notariaNum} con residencia en ${ciudad}.`;
+                                  }
+                                  return '';
+                              }).filter(text => text).join('<br><br>')}
+                          </td>
+                      </tr>
+                  </table>
               `;
           }
           
-          // 2. Documentos dictaminados (cronológico)
+          // 2) Duración y 3) Domicilio social
           html += `
-              <div class="dictamen-section">
-                  <div class="dictamen-header">Documentos dictaminados</div>
-                  <div class="dictamen-section-content">
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; width: 30%; border: 1px solid #000000;">
+                          2) Duración: (Esc.${numeroEscritura})
+                      </td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">
+                          ${actaData?.duración_sociedad || actaData?.duración || 'Indefinida'}
+                      </td>
+                  </tr>
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;">
+                          3) Domicilio social: (Esc.${numeroEscritura})
+                      </td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">
+                          ${actaData?.domicilio_social || actaData?.domicilio || ''}
+                      </td>
+                  </tr>
+              </table>
+          `;
+              
+          // 4. Objeto Social - analizar el objeto real de los documentos
+          const objetoSocial = actaData?.objeto_social || actaData?.objeto || '';
+          const objetoText = Array.isArray(objetoSocial) ? objetoSocial.join(' ') : objetoSocial.toString();
+          const objetoUpper = objetoText.toUpperCase();
+          
+          // Analizar si el objeto social incluye las facultades requeridas
+          const puedeCredito = objetoUpper.includes('CRÉDITO') || objetoUpper.includes('CREDITO') || 
+                              objetoUpper.includes('PRÉSTAMO') || objetoUpper.includes('PRESTAMO') ||
+                              objetoUpper.includes('FINANCIAMIENTO') || objetoUpper.includes('MUTUO');
+          
+          const puedeGarantias = objetoUpper.includes('GARANTÍA') || objetoUpper.includes('GARANTIA') ||
+                                objetoUpper.includes('HIPOTECA') || objetoUpper.includes('PRENDA') ||
+                                objetoUpper.includes('FIANZA') || objetoUpper.includes('AVAL');
+          
+          const puedeGarantizarTerceros = objetoUpper.includes('TERCERO') && (objetoUpper.includes('GARANTÍA') || objetoUpper.includes('GARANTIA')) ||
+                                         objetoUpper.includes('OBLIGADO SOLIDARIO') || objetoUpper.includes('AVAL');
+          
+          const puedeAvales = objetoUpper.includes('AVAL') || objetoUpper.includes('FIANZA');
+          
+          const puedeObligadoSolidario = objetoUpper.includes('OBLIGADO SOLIDARIO') || objetoUpper.includes('SOLIDARIO') ||
+                                        objetoUpper.includes('OBLIGARSE SOLIDARIAMENTE');
+          
+          html += `
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;" colspan="2">
+                          4) Objeto Social: (Esc.${numeroEscritura})
+                      </td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; width: 80%;">Celebrar contratos de crédito</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center; width: 20%;">${puedeCredito ? 'Sí' : 'No'}</td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Otorgar garantías a favor de la sociedad</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeGarantias ? 'Sí' : 'No'}</td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Garantizar obligaciones a cargo de terceros</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeGarantizarTerceros ? 'Sí' : 'No'}</td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Otorgar avales</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeAvales ? 'Sí' : 'No'}</td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Constituirse como obligado deudor solidario</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeObligadoSolidario ? 'Sí' : 'No'}</td>
+                  </tr>
+              </table>
+              
+              <!-- Objeto Social Completo -->
+              ${objetoText ? `
+                  <div style="margin: 10px 0; padding: 10px; background-color: #f9fafb; border: 1px solid #e5e7eb;">
+                      <p style="font-size: 10px; font-weight: bold; margin-bottom: 5px;">Objeto Social Completo:</p>
+                      <p style="font-size: 9px; text-align: justify; line-height: 1.4;">
+                          ${Array.isArray(objetoSocial) ? objetoSocial.map((item, idx) => `${idx + 1}. ${item}`).join('<br>') : objetoText}
+                      </p>
+                  </div>
+              ` : ''}
+          `;
+              
+          // 5. Limitaciones de los Estatutos
+          const limitacionesEstatutos = actaData?.limitaciones_estatutarias || actaData?.restricciones || '';
+          const hayLimitaciones = limitacionesEstatutos && limitacionesEstatutos.length > 0;
+          
+          html += `
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;">
+                          5) Limitaciones de los Estatutos Sociales relativos a la celebración de contratos de crédito, arrendamientos<br>
+                          y/u otorgamiento de garantías (Esc.${hayLimitaciones ? numeroEscritura : 'N/A'})
+                      </td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">
+                          ${hayLimitaciones ? limitacionesEstatutos : 'N/A'}
+                      </td>
+                  </tr>
+              </table>
           `;
           
-          allDocs.forEach((doc, idx) => {
-              const isLast = idx === allDocs.length - 1;
-              html += `
-                  <div class="documento-chronologico" style="${!isLast ? 'border-bottom: 1px dashed #d1d5db;' : ''}">
-                      ${doc.processed_data.datos_documento}
-                  </div>
-              `;
+          // 6. Órgano de Administración vigente con tabla de Administradores y Comisario
+          const nombresAdministradores = actaData?.nombres_administradores || [];
+          
+          // Debug para verificar de dónde viene el comisario
+          console.log('Buscando comisario en:', {
+              finalStructures: finalStructures?.vigent_structures?.organo_vigilancia?.data?.nombre_comisario,
+              organo_vigilacia: actaData?.órgano_vigilacia_o_vigilación?.nombre_comisario,
+              directo: actaData?.nombre_comisario,
+              actaData: actaData
           });
           
-          html += `
-                  </div>
-              </div>
-          `;
+          // Priorizar el comisario del acta constitutiva sobre el de final structures
+          const nombreComisario = actaData?.nombre_comisario || 
+                                actaData?.órgano_vigilacia_o_vigilación?.nombre_comisario || 
+                                finalStructures?.vigent_structures?.organo_vigilancia?.data?.nombre_comisario || '';
           
-          // Solo continuar con el dictamen completo si hay acta constitutiva
-          if (constitutiva) {
-              // 3. Duración
+          // Mostrar tabla combinada si hay información de administradores o comisario
+          if (nombresAdministradores.length > 0 || nombreComisario) {
               html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">2) Duración: (Esc.${numeroEscritura})</div>
-                      <div class="dictamen-section-content">
-                          ${actaData?.duración_sociedad || 'INDEFINIDA'}
-                      </div>
-                  </div>
-              `;
-              
-              // 4. Domicilio social
-              html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">3) Domicilio social: (Esc.${numeroEscritura})</div>
-                      <div class="dictamen-section-content">
-                          ${actaData?.domicilio_social || '[DOMICILIO]'}
-                      </div>
-                  </div>
-              `;
-              
-              // 5. Objeto Social
-              html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">4) Objeto Social: (Esc.${numeroEscritura})</div>
-                      <div class="dictamen-section-content">
-                          <table class="dictamen-table">
-                              <tr>
-                                  <td style="width: 80%;">Celebrar contratos de crédito</td>
-                                  <td style="width: 20%; text-align: center;">Sí</td>
-                              </tr>
-                              <tr>
-                                  <td>Otorgar garantías a favor de la sociedad</td>
-                                  <td style="text-align: center;">Sí</td>
-                              </tr>
-                              <tr>
-                                  <td>Garantizar obligaciones a cargo de terceros</td>
-                                  <td style="text-align: center;">Sí</td>
-                              </tr>
-                              <tr>
-                                  <td>Otorgar avales</td>
-                                  <td style="text-align: center;">Sí</td>
-                              </tr>
-                              <tr>
-                                  <td>Constituirse como obligado/deudor solidario</td>
-                                  <td style="text-align: center;">Sí</td>
-                              </tr>
-                          </table>
-                      </div>
-                  </div>
-              `;
-              
-              // 6. Limitaciones de los Estatutos
-              html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">
-                          5) Limitaciones de los Estatutos Sociales relativos a la celebración de contratos de crédito, 
-                          arrendamientos y/u otorgamiento de garantías (Esc.N/A)
-                      </div>
-                      <div class="dictamen-section-content">
-                          N/A
-                      </div>
-                  </div>
+                  <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                      <tr>
+                          <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;" colspan="2">
+                              6) Órganos de Administración y Vigilancia (Esc.${numeroEscritura})
+                          </td>
+                      </tr>
+                      <tr style="background-color: #e5e7eb;">
+                          <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center; width: 50%;">
+                              Administradores
+                          </td>
+                          <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center; width: 50%;">
+                              Comisario
+                          </td>
+                      </tr>
+                      <tr>
+                          <td style="padding: 10px; border: 1px solid #d1d5db; vertical-align: top;">
+                              ${nombresAdministradores.length > 0 ? `
+                                  <ul style="list-style: none; padding: 0; margin: 0;">
+                                      ${nombresAdministradores.map((admin, idx) => `
+                                          <li style="margin-bottom: 5px;">
+                                              <span style="display: inline-block; width: 20px; height: 20px; background-color: #e0e7ff; border-radius: 50%; text-align: center; line-height: 20px; font-size: 10px; margin-right: 8px;">
+                                                  ${idx + 1}
+                                              </span>
+                                              ${admin}
+                                          </li>
+                                      `).join('')}
+                                  </ul>
+                              ` : '<span style="color: #6b7280;">No especificados</span>'}
+                          </td>
+                          <td style="padding: 10px; border: 1px solid #d1d5db; vertical-align: top;">
+                              ${nombreComisario || 'Por designar'}
+                          </td>
+                      </tr>
+                  </table>
               `;
           }
           
-          // 7. Órgano de Administración vigente
+          // Información adicional del órgano de administración si existe
           if (finalStructures?.vigent_structures?.organo_administracion) {
               const organo = finalStructures.vigent_structures.organo_administracion;
+              const tipoAdmin = organo.data.miembros && organo.data.miembros.length > 1 ? 
+                               '(CONSEJO DE ADMINISTRACIÓN)' : 
+                               '(ADMINISTRADOR ÚNICO)';
+              
               html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">
-                          6) Órgano de Administración (CONSEJO DE ADMINISTRACIÓN) (Esc.${organo.source_deed})
-                      </div>
-                      <div class="dictamen-section-content">
-                          <table class="dictamen-table">
-                              ${organo.data.miembros.map(miembro => `
-                                  <tr>
-                                      <td style="width: 30%; font-weight: bold;">${miembro.rol}:</td>
-                                      <td>${miembro.nombre}</td>
-                                  </tr>
-                              `).join('')}
-                          </table>
-                      </div>
-                  </div>
+                  <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                      <tr>
+                          <td style="background-color: #e5e7eb; padding: 6px; font-weight: bold; border: 1px solid #d1d5db;">
+                              Estructura del Órgano de Administración ${tipoAdmin} (Esc.${organo.source_deed})
+                          </td>
+                      </tr>
+                      <tr>
+                          <td style="padding: 8px; border: 1px solid #d1d5db;">
+                              <table style="width: 100%;">
+                                  ${organo.data.miembros.map(miembro => `
+                                      <tr>
+                                          <td style="padding: 4px; width: 30%; font-weight: bold;">
+                                              ${miembro.rol}:
+                                          </td>
+                                          <td style="padding: 4px;">
+                                              ${miembro.nombre}
+                                          </td>
+                                      </tr>
+                                  `).join('')}
+                              </table>
+                          </td>
+                      </tr>
+                  </table>
               `;
           }
           
-          // 8. Órgano de Vigilancia vigente
-          if (finalStructures?.vigent_structures?.organo_vigilancia) {
-              const vigilancia = finalStructures.vigent_structures.organo_vigilancia;
+          // 7. Facultades del Órgano de Administración
+          const organoAdmin = finalStructures?.vigent_structures?.organo_administracion;
+          const facultadesOrgano = organoAdmin?.data?.facultades || 
+                                 actaData?.órgano_administración?.facultades || 
+                                 actaData?.facultades_organo_administracion || [];
+          const sourceEsc = organoAdmin?.source_deed || numeroEscritura;
+          
+          // Analizar las facultades del órgano como texto
+          const facultadesText = Array.isArray(facultadesOrgano) ? facultadesOrgano.join(' ') : facultadesOrgano.toString();
+          const facultadesUpper = facultadesText.toUpperCase();
+          
+          // Verificar cada tipo de facultad
+          const tieneAdministracion = facultadesUpper.includes('ADMINISTRACIÓN') || facultadesUpper.includes('ADMINISTRACION');
+          const tieneDominio = facultadesUpper.includes('DOMINIO');
+          const tieneCambiario = facultadesUpper.includes('TÍTULOS') || facultadesUpper.includes('TITULOS') || 
+                               facultadesUpper.includes('CRÉDITO') || facultadesUpper.includes('CREDITO');
+          const puedeDelegar = facultadesUpper.includes('CONFERIR') || facultadesUpper.includes('DELEGAR') || 
+                             facultadesUpper.includes('OTORGAR PODERES');
+          const puedeCuentasBancarias = facultadesUpper.includes('CUENTA') || facultadesUpper.includes('BANCARIA') ||
+                                      tieneAdministracion; // Si tiene admin, generalmente puede manejar cuentas
+          
+          // Determinar forma de ejercer - buscar palabras clave
+          const formaEjercer = facultadesUpper.includes('MANCOMUNADA') || facultadesUpper.includes('CONJUNTA') ? 
+                             'Conjuntamente' : 'Individual';
+          
+          html += `
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;" colspan="4">
+                          7) Facultades del Órgano de Administración: (Esc.${sourceEsc})
+                      </td>
+                  </tr>
+                  <tr style="background-color: #e5e7eb;">
+                      <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">Facultades</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center; width: 60px;">Sí/No</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center; width: 120px;">Forma de Ejercer<br>los Poderes</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">Comentarios</td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Poder General para Actos de Administración</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${tieneAdministracion ? 'Sí' : 'No'}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${tieneAdministracion ? formaEjercer : ''}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;"></td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Facultado para Abrir y Cancelar Cuentas Bancarias</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeCuentasBancarias ? 'Sí' : 'No'}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeCuentasBancarias ? formaEjercer : ''}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;"></td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Poder General para Actos de Dominio</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${tieneDominio ? 'Sí' : 'No'}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${tieneDominio ? formaEjercer : ''}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;"></td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Poder General Cambiario</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${tieneCambiario ? 'Sí' : 'No'}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${tieneCambiario ? formaEjercer : ''}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;"></td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;">Delegar</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeDelegar ? 'Sí' : 'No'}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">${puedeDelegar ? formaEjercer : ''}</td>
+                      <td style="padding: 6px; border: 1px solid #d1d5db;"></td>
+                  </tr>
+              </table>
+          `;
+          
+          // Limitaciones del órgano
+          const limitacionesOrgano = organoAdmin?.data?.limitaciones || '';
+          if (limitacionesOrgano) {
               html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">
-                          7) Órgano de Vigilancia actual (COMISARIO) (Esc.${vigilancia.source_deed})
-                      </div>
-                      <div class="dictamen-section-content">
-                          ${vigilancia.data.nombre_comisario}
-                      </div>
-                  </div>
+                  <p style="font-size: 10px; margin: 10px 0;">Limitaciones:</p>
+                  <p style="font-size: 9px; margin: 5px 0 15px 20px; text-align: justify;">- ${limitacionesOrgano}</p>
               `;
           }
           
-          // 9. Facultades del Órgano de Administración
-          if (constitutiva && actaData?.órgano_administración?.facultades) {
-              html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">8) Facultades del Órgano de Administración: (Esc.${numeroEscritura})</div>
-                      <div class="dictamen-section-content">
-                          <table class="dictamen-table">
-                              <thead>
-                                  <tr>
-                                      <th>Facultades</th>
-                                      <th style="width: 60px; text-align: center;">Sí/No</th>
-                                      <th style="width: 120px;">Forma de Ejercer</th>
-                                      <th>Comentarios</th>
-                                  </tr>
-                              </thead>
-                              <tbody>
-                                  <tr>
-                                      <td>Poder General para Actos de Administración</td>
-                                      <td style="text-align: center;">Sí</td>
-                                      <td>Conjuntamente</td>
-                                      <td></td>
-                                  </tr>
-                                  <tr>
-                                      <td>Poder General para Actos de Dominio</td>
-                                      <td style="text-align: center;">Sí</td>
-                                      <td>Conjuntamente</td>
-                                      <td></td>
-                                  </tr>
-                                  <tr>
-                                      <td>Poder General Cambiario</td>
-                                      <td style="text-align: center;">Sí</td>
-                                      <td>Conjuntamente</td>
-                                      <td></td>
-                                  </tr>
-                                  <tr>
-                                      <td>Delegar</td>
-                                      <td style="text-align: center;">Sí</td>
-                                      <td>Conjuntamente</td>
-                                      <td></td>
-                                  </tr>
-                              </tbody>
-                          </table>
-                      </div>
-                  </div>
-              `;
-          }
+          // 8. Apoderados vigentes
+          // Combinar apoderados de final structures y del documento de poder
+          const apoderadosList = [];
           
-          // 10. Apoderados vigentes
+          // Agregar apoderados de final structures
           if (finalStructures?.vigent_structures?.apoderados) {
               const apoderados = finalStructures.vigent_structures.apoderados;
-              html += `<div style="page-break-inside: avoid;">`;
-              
-              apoderados.data.forEach((apoderado, idx) => {
-                  html += `
-                      <div class="dictamen-section" style="margin-top: 20px;">
-                          <div class="dictamen-header">
-                              9) Apoderados: (${apoderado.nombre} Esc.${apoderados.source_deed})
-                          </div>
-                          <div class="dictamen-section-content">
-                              <table class="dictamen-table">
-                                  <thead>
-                                      <tr>
-                                          <th>Facultades</th>
-                                          <th style="width: 60px; text-align: center;">Sí/No</th>
-                                          <th style="width: 120px;">Forma de Ejercer</th>
-                                          <th>Comentarios</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody>
-              `;
-              
-              // Mapear poderes a la tabla
-              const poderesMap = {
-                  'Para ejercer actos de dominio': 'Poder General para Actos de Dominio',
-                  'Para pleitos y cobranzas': 'Poder General para Pleitos y Cobranzas',
-                  'Para administrar bienes': 'Poder General para Actos de Administración',
-                  'Poder general cambiario': 'Poder General Cambiario'
-              };
-              
-              // Verificar cada tipo de poder
-              Object.entries(poderesMap).forEach(([key, label]) => {
-                  const tienePoder = apoderado.poderes.some(p => 
-                      p.toLowerCase().includes(key.toLowerCase())
-                  );
-                  
-                  html += `
-                      <tr>
-                          <td>${label}</td>
-                          <td style="text-align: center;">${tienePoder ? 'Sí' : 'No'}</td>
-                          <td>${tienePoder ? 'Individual' : ''}</td>
-                          <td style="font-size: 9px;">${apoderado.limitante || ''}</td>
-                      </tr>
-                  `;
+              apoderados.data.forEach(ap => {
+                  apoderadosList.push({
+                      ...ap,
+                      source_deed: apoderados.source_deed
+                  });
               });
-              
-              html += `
-                                  </tbody>
-                              </table>
-                          </div>
-                      </div>
-              `;
-              });
-              
-              html += `</div>`;
-          } else if (poder) {
-              // Si no hay apoderados vigentes pero hay un poder, mostrarlo
+          }
+          
+          // Agregar apoderados del documento de poder si existe
+          if (poder && poder.processed_data?.extraccion) {
               const poderData = poder.processed_data.extraccion;
-              if (poderData.poderes && poderData.poderes.length > 0) {
-                  html += `
-                      <div class="dictamen-section">
-                          <div class="dictamen-header">9) Apoderados</div>
-                          <div class="dictamen-section-content">
-                              ${renderPoderesAgrupados(poderData.poderes)}
-                          </div>
-                      </div>
-                  `;
+              if (poderData.a_favor_de) {
+                  const apoderados = Array.isArray(poderData.a_favor_de) ? poderData.a_favor_de : [poderData.a_favor_de];
+                  apoderados.forEach(nombre => {
+                      // Verificar si este apoderado ya está en la lista
+                      const existe = apoderadosList.some(ap => ap.nombre === nombre);
+                      if (!existe) {
+                          apoderadosList.push({
+                              nombre: nombre,
+                              poderes: poderData.facultades || poderData.poderes || [],
+                              forma_de_ejercer: poderData.forma_de_ejercer || '',
+                              limitante: poderData.limitante || '',
+                              source_deed: poderData.numero_escritura_o_póliza || poderData.numero_de_escritura_publica || ''
+                          });
+                      }
+                  });
               }
           }
           
-          // 11. Accionistas vigentes
+          if (apoderadosList.length > 0) {
+              apoderadosList.forEach((apoderado, idx) => {
+                  console.log('Apoderado:', apoderado); // Debug
+                  
+                  // Obtener forma de ejercer y limitante DIRECTAMENTE del apoderado
+                  const formaEjercer = apoderado.forma_de_ejercer || '';
+                  const limitante = apoderado.limitante || '';
+                  
+                  // Analizar los poderes del apoderado
+                  const poderesArray = Array.isArray(apoderado.poderes) ? apoderado.poderes : [apoderado.poderes];
+                  const poderesStr = poderesArray.join(' ').toUpperCase();
+                  
+                  // Si hay poderes específicos, mostrarlos después de la tabla
+                  const poderesTextoCompleto = poderesArray.filter(p => p && p.length > 0).join('; ');
+                  
+                  // Verificar cada tipo de poder
+                  const tieneActosAdministracion = poderesStr.includes('ADMINISTRACIÓN') || 
+                                                   poderesStr.includes('ADMINISTRACION');
+                  const tieneActosDominio = poderesStr.includes('DOMINIO');
+                  const tieneCambiario = poderesStr.includes('TÍTULOS') || 
+                                        poderesStr.includes('TITULOS') || 
+                                        poderesStr.includes('CRÉDITO') || 
+                                        poderesStr.includes('CREDITO') ||
+                                        poderesStr.includes('CAMBIARIO');
+                  const puedeDelegar = poderesStr.includes('CONFERIR') || 
+                                      poderesStr.includes('REVOCAR') || 
+                                      poderesStr.includes('DELEGAR') ||
+                                      poderesStr.includes('OTORGAR PODERES');
+                  
+                  // Usar la forma de ejercer TAL CUAL viene del documento
+                  const mostrarFormaEjercer = (tiene, forma) => {
+                      if (!tiene) return '';
+                      if (!forma) return 'Individual'; // Default si no hay forma especificada
+                      // Mostrar la forma completa si es corta, o indicar ver limitaciones si es larga
+                      if (forma.length <= 50) {
+                          return forma;
+                      } else {
+                          return 'Ver limitaciones';
+                      }
+                  };
+                  
+                  html += `
+                      <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px; ${idx > 0 ? 'page-break-before: auto;' : ''}">
+                          <tr>
+                              <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;" colspan="4">
+                                  8) Apoderados:
+                              </td>
+                          </tr>
+                          <tr>
+                              <td style="background-color: #e5e7eb; padding: 6px; font-weight: bold; border: 1px solid #d1d5db;" colspan="4">
+                                  ${apoderado.nombre} (Esc.${apoderado.source_deed})
+                              </td>
+                          </tr>
+                          <tr style="background-color: #e5e7eb;">
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">Facultades</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center; width: 60px;">Sí/No</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center; width: 120px;">Forma de Ejercer<br>los Poderes</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">Comentarios</td>
+                          </tr>
+                          <tr>
+                              <td style="padding: 6px; border: 1px solid #d1d5db;">Poder General para Actos de Administración</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                                  ${tieneActosAdministracion ? 'Sí' : 'No'}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center; font-size: ${formaEjercer.length > 50 ? '9px' : '11px'};">
+                                  ${mostrarFormaEjercer(tieneActosAdministracion, formaEjercer)}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-size: 8px;">
+                                  ${tieneActosAdministracion && formaEjercer.length > 50 ? 'Ver limitaciones' : ''}
+                              </td>
+                          </tr>
+                          <tr>
+                              <td style="padding: 6px; border: 1px solid #d1d5db;">Facultado para Abrir y Cancelar Cuentas Bancarias</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                                  ${tieneActosAdministracion ? 'Sí' : 'No'}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center; font-size: ${formaEjercer.length > 50 ? '9px' : '11px'};">
+                                  ${mostrarFormaEjercer(tieneActosAdministracion, formaEjercer)}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-size: 8px;">
+                                  ${tieneActosAdministracion && formaEjercer.length > 50 ? 'Ver limitaciones' : ''}
+                              </td>
+                          </tr>
+                          <tr>
+                              <td style="padding: 6px; border: 1px solid #d1d5db;">Poder General para Actos de Dominio</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                                  ${tieneActosDominio ? 'Sí' : 'No'}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center; font-size: ${formaEjercer.length > 50 ? '9px' : '11px'};">
+                                  ${mostrarFormaEjercer(tieneActosDominio, formaEjercer)}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-size: 8px;">
+                                  ${tieneActosDominio && formaEjercer.length > 50 ? 'Ver limitaciones' : ''}
+                              </td>
+                          </tr>
+                          <tr>
+                              <td style="padding: 6px; border: 1px solid #d1d5db;">Poder General Cambiario</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                                  ${tieneCambiario ? 'Sí' : 'No'}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center; font-size: ${formaEjercer.length > 50 ? '9px' : '11px'};">
+                                  ${mostrarFormaEjercer(tieneCambiario, formaEjercer)}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; font-size: 8px;">
+                                  ${tieneCambiario && formaEjercer.length > 50 ? 'Ver limitaciones' : ''}
+                              </td>
+                          </tr>
+                          <tr>
+                              <td style="padding: 6px; border: 1px solid #d1d5db;">Delegar</td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                                  ${puedeDelegar ? 'Sí' : 'No'}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center; font-size: ${formaEjercer.length > 50 ? '9px' : '11px'};">
+                                  ${mostrarFormaEjercer(puedeDelegar, formaEjercer)}
+                              </td>
+                              <td style="padding: 6px; border: 1px solid #d1d5db;"></td>
+                          </tr>
+                      </table>
+                  `;
+                  
+                  // Mostrar poderes completos si existen
+                  if (poderesTextoCompleto && poderesTextoCompleto.length > 0) {
+                      html += `
+                          <div style="margin: 10px 0; padding: 10px; background-color: #f9fafb; border: 1px solid #e5e7eb;">
+                              <p style="font-size: 9px; font-weight: bold; margin-bottom: 5px;">Facultades otorgadas:</p>
+                              <p style="font-size: 8px; text-align: justify; line-height: 1.3;">
+                                  ${poderesTextoCompleto}
+                              </p>
+                          </div>
+                      `;
+                  }
+                  
+                  // Mostrar limitaciones si existen - usar directamente el campo limitante
+                  if (limitante || (formaEjercer && formaEjercer.length > 50)) {
+                      html += `
+                          <p style="font-size: 10px; margin: 10px 0; font-weight: bold;">Limitaciones:</p>
+                      `;
+                      
+                      if (formaEjercer && formaEjercer.length > 50) {
+                          html += `
+                              <p style="font-size: 9px; margin: 5px 0 5px 20px; text-align: justify;">
+                                  <strong>Forma de ejercer:</strong> ${formaEjercer}
+                              </p>
+                          `;
+                      }
+                      
+                      if (limitante) {
+                          html += `
+                              <p style="font-size: 9px; margin: 5px 0 15px 20px; text-align: justify;">
+                                  <strong>Limitantes:</strong> ${limitante}
+                              </p>
+                          `;
+                      }
+                  }
+              });
+          }
+          
+          // 9. Transcripción del Artículo 2554 - verificar en los documentos
+          let tieneTranscripcion2554 = false;
+          
+          // Buscar en todos los documentos si existe transcripción del artículo 2554
+          allDocs.forEach(doc => {
+              const extraccion = doc.processed_data?.extraccion || {};
+              const contenido = JSON.stringify(extraccion).toUpperCase();
+              if (contenido.includes('2554') || contenido.includes('ARTÍCULO 2554') || contenido.includes('ARTICULO 2554')) {
+                  tieneTranscripcion2554 = true;
+              }
+          });
+          
+          html += `
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                  <tr>
+                      <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;">
+                          9) Transcripción del Artículo 2554 del Código Civil Federal o de su Correlativo en los Estados de la República Mexicana
+                      </td>
+                  </tr>
+                  <tr>
+                      <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                          ${tieneTranscripcion2554 ? 'Sí' : 'No'}
+                      </td>
+                  </tr>
+              </table>
+          `;
+          
+          // 10. Accionistas vigentes
           if (finalStructures?.vigent_structures?.accionistas) {
               const accionistas = finalStructures.vigent_structures.accionistas;
+              const capitalSocial = finalStructures.vigent_structures.capital_social?.data || {};
+              
+              // Calcular totales
+              let totalAcciones = 0;
+              let totalValor = 0;
+              
               html += `
-                  <div class="dictamen-section">
-                      <div class="dictamen-header">
-                          10) Accionistas y Acciones/Valores Actuales (Esc.${accionistas.source_deed})
-                      </div>
-                      <div class="dictamen-section-content">
-                          <table class="dictamen-table">
-                              <thead>
-                                  <tr>
-                                      <th>Accionistas</th>
-                                      <th>Acciones Serie "A"</th>
-                                      <th>Acciones Serie "B"</th>
-                                      <th>Valor</th>
-                                      <th style="text-align: center;">%</th>
-                                  </tr>
-                              </thead>
-                              <tbody>
-                                  ${accionistas.data.map(acc => {
-                                      // Calcular porcentaje
-                                      const valorNumerico = parseFloat(acc.valor?.replace(/[^\d.-]/g, '') || 0);
-                                      const totalCapital = accionistas.data.reduce((sum, a) => {
-                                          return sum + parseFloat(a.valor?.replace(/[^\d.-]/g, '') || 0);
-                                      }, 0);
-                                      const porcentaje = totalCapital > 0 ? ((valorNumerico / totalCapital) * 100).toFixed(2) : '0';
-                                      
-                                      return `
-                                          <tr>
-                                              <td>${acc.nombre}</td>
-                                              <td style="text-align: center;">${acc.número_de_acciones || '-'}</td>
-                                              <td style="text-align: center;">-</td>
-                                              <td style="text-align: right;">${acc.valor}</td>
-                                              <td style="text-align: center;">${porcentaje}%</td>
-                                          </tr>
-                                      `;
-                                  }).join('')}
-                              </tbody>
-                              <tfoot>
-                                  <tr style="font-weight: bold;">
-                                      <td>Total</td>
-                                      <td colspan="2"></td>
-                                      <td style="text-align: right;">
-                                          ${accionistas.data.reduce((sum, a) => {
-                                              return sum + parseFloat(a.valor?.replace(/[^\d.-]/g, '') || 0);
-                                          }, 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
-                                      </td>
-                                      <td style="text-align: center;">100%</td>
-                                  </tr>
-                              </tfoot>
-                          </table>
-                      </div>
-                  </div>
+                  <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                      <tr>
+                          <td style="background-color: #000000; color: white; padding: 6px; font-weight: bold; border: 1px solid #000000;" colspan="3">
+                              10) Accionistas y Acciones/Valores Actuales (Esc.${accionistas.source_deed})
+                          </td>
+                      </tr>
+                      <tr style="background-color: #e5e7eb;">
+                          <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">ACCIONISTA</td>
+                          <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">ACCIONES</td>
+                          <td style="padding: 6px; border: 1px solid #d1d5db; font-weight: bold; text-align: center;">$</td>
+                      </tr>
+                      ${accionistas.data.map(acc => {
+                          // Extraer número de acciones
+                          let numAcciones = 0;
+                          if (acc.número_de_acciones) {
+                              numAcciones = parseInt(acc.número_de_acciones.toString().replace(/[^\d]/g, '') || 0);
+                              totalAcciones += numAcciones;
+                          }
+                          
+                          // Extraer valor
+                          let valorAcciones = 0;
+                          if (acc.valor) {
+                              valorAcciones = parseFloat(acc.valor.toString().replace(/[^\d.]/g, '') || 0);
+                              totalValor += valorAcciones;
+                          }
+                          
+                          return `
+                              <tr>
+                                  <td style="padding: 6px; border: 1px solid #d1d5db;">${acc.nombre}</td>
+                                  <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                                      ${numAcciones > 0 ? numAcciones.toLocaleString() : '-'}
+                                  </td>
+                                  <td style="padding: 6px; border: 1px solid #d1d5db; text-align: right;">
+                                      ${valorAcciones > 0 ? valorAcciones.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : '-'}
+                                  </td>
+                              </tr>
+                          `;
+                      }).join('')}
+                      <tr style="font-weight: bold; background-color: #e5e7eb;">
+                          <td style="padding: 6px; border: 1px solid #d1d5db;">Total</td>
+                          <td style="padding: 6px; border: 1px solid #d1d5db; text-align: center;">
+                              ${totalAcciones.toLocaleString()}
+                          </td>
+                          <td style="padding: 6px; border: 1px solid #d1d5db; text-align: right;">
+                              ${totalValor.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                          </td>
+                      </tr>
+                  </table>
               `;
           }
           
           // Conclusiones
           html += `
-              <div style="margin-top: 30px; padding: 15px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
+              <div style="border: 1px solid #d1d5db; padding: 15px; margin-top: 20px;">
                   <p style="font-weight: bold; margin-bottom: 10px;">Conclusiones:</p>
-                  <ul style="margin: 10px 0; padding-left: 20px; list-style-type: disc;">
-                      <li style="margin: 5px 0;">La Sociedad Mercantil objeto del presente dictamen se encuentra debidamente constituida bajo las leyes mexicanas.</li>
-                    <li style="margin: 5px 0;">Se reconocen las facultades conferidas al Órgano de Administración y Apoderados.</li>
-                      <li style="margin: 5px 0;">Favor de verificar con el cliente la subsistencia de los cargos y poderes otorgados.</li>
-                      <li style="margin: 5px 0;">El presente dictamen se elaboró con los documentos proporcionados por el ejecutivo al Departamento Jurídico.</li>
+                  <ul style="margin: 10px 0; padding-left: 20px; list-style-type: disc; font-size: 10px;">
+                      <li style="margin: 5px 0;">La Persona Moral objeto del presente dictamen se encuentra debidamente constituida bajo las leyes mexicanas.</li>
+                      <li style="margin: 5px 0;">Se reconocen las facultades conferidas al Órgano de Administración y Apoderados.</li>
+                      <li style="margin: 5px 0;">Favor de verificar con el cliente la subsistencia de los cargos y poderes otorgados, asimismo favor de verificar si existen actas posteriores a la constitución en donde existan cambios importantes en la Persona Moral.</li>
+                      <li style="margin: 5px 0;">El presente dictamen se elaboró con los documentos proporcionados por el ejecutivo (Departamento Comercial) al Departamento Jurídico, por lo que será responsabilidad del Departamento Comercial verificar con el cliente la subsistencia de los cargos y poderes otorgados, así mismo favor de verificar si existen actas posteriores a la constitución en donde existan cambios importantes en la Persona Moral. Se deja la responsabilidad al ejecutivo de obtener todas las escrituras importantes de la empresa a dictaminar.</li>
                   </ul>
               </div>
               
-              <div style="text-align: right; margin: 30px 0;">
-                  <p>${actaData?.lugar?.municipio || 'Ciudad'} a ${fecha}</p>
+              <!-- Cuadro de texto adicional como en Bancrea -->
+              <div style="margin-top: 20px; padding: 10px; border: 1px solid #d1d5db; background-color: #f9fafb;">
+                  <p style="font-size: 9px; text-align: justify;">
+                      ${finalStructures?.vigent_structures?.apoderados ? 
+                      'con el cliente la subsistencia de los cargos y poderes otorgados, así mismo favor de verificar si existen actas posteriores a la constitución en donde existan cambios importantes en la Persona Moral. Se deja la responsabilidad al ejecutivo de obtener todas las escrituras importantes de la empresa a dictaminar.' : 
+                      'con el cliente la subsistencia de los cargos y poderes otorgados, así mismo favor de verificar si existen actas posteriores a la constitución en donde existan cambios importantes en la Persona Moral.'}
+                  </p>
               </div>
               
-              <div style="text-align: center; margin-top: 50px;">
-                  <p>Atentamente</p>
-                  <div style="border-top: 1px solid black; width: 200px; margin: 40px auto 10px;"></div>
-                  <p>Lic. ______________________________</p>
-                  <p>Departamento Jurídico</p>
+              <div style="margin-top: 40px;">
+                  <div style="text-align: right; margin-bottom: 40px;">
+                      <p style="font-size: 11px;">Monterrey, NL a ${fecha}</p>
+                      <p style="font-size: 11px; margin-top: 5px;">Atentamente</p>
+                  </div>
+                  
+                  <div style="margin-top: 80px;">
+                      <table style="width: 100%; table-layout: fixed;">
+                          <tr>
+                              <td style="width: 45%; text-align: center; vertical-align: top;">
+                                  <div style="height: 80px;"></div>
+                                  <div style="border-top: 1px solid black; width: 80%; margin: 0 auto 5px;"></div>
+                                  <p style="font-size: 11px; font-weight: bold;">Lic. Fabiola Yessenia Torres Rostro</p>
+                                  <p style="font-size: 10px;">Departamento Jurídico</p>
+                              </td>
+                              <td style="width: 10%;"></td>
+                              <td style="width: 45%; vertical-align: top;">
+                                  <table style="width: 100%; border: 1px solid #d1d5db; border-collapse: collapse;">
+                                      <tr>
+                                          <td style="padding: 5px; border: 1px solid #d1d5db; font-size: 9px;">
+                                              Cristina Guadalupe Zamarron Gonzalez
+                                          </td>
+                                      </tr>
+                                      <tr>
+                                          <td style="height: 60px; border: 1px solid #d1d5db;">
+                                              &nbsp;
+                                          </td>
+                                      </tr>
+                                  </table>
+                                  <div style="margin-top: 10px; text-align: right;">
+                                      <p style="font-size: 9px;">Escrituras:</p>
+                                      <p style="font-size: 9px;">${allDocs.map(d => {
+                                          const num = d.processed_data?.extraccion?.numero_escritura_o_póliza || 
+                                                     d.processed_data?.extraccion?.numero_de_escritura_publica || '';
+                                          return num.replace(/[^0-9,]/g, '');
+                                      }).filter(n => n).join(', ')}</p>
+                                  </div>
+                              </td>
+                          </tr>
+                      </table>
+                  </div>
               </div>
           </div>
           `;
